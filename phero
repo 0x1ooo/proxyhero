@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+
+BIN=/usr/bin/trojan
+ETC=/etc/trojan
+SYSTEMD=/etc/systemd/system/trojan.service
+SVCNAME=trojan
+PROXY_PORT=7890
+
+####### color code ########
+RED="\033[31m"    # Error message
+GREEN="\033[32m"  # Success message
+YELLOW="\033[33m" # Warning message
+BLUE="\033[36m"   # Info message
+RAW="\033[0m"
+
+colorEcho() {
+    echo -e "${1}${@:2}${RAW}" 1>&2
+}
+##########################
+
+check_if_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Please run this script with root permission"
+        exit
+    fi
+}
+
+check_if_active() {
+    sleep 2s
+    systemctl is-active --quiet ${SVCNAME}
+}
+
+start_service() {
+    echo -ne "${BLUE}Starting Trojan service... "
+    systemctl start ${SVCNAME}
+    check_if_active
+    if [ $? -eq 0 ]; then
+        colorEcho ${GREEN} "Running."
+    else
+        colorEcho ${RED} "Failed."
+    fi
+}
+
+stop_service() {
+    echo -ne "${BLUE}Stopping Trojan service... "
+    systemctl stop ${SVCNAME}
+    check_if_active
+    if [ $? -ne 0 ]; then
+        colorEcho ${RED} "Stopped."
+    fi
+}
+restart_service() {
+    echo -ne "${BLUE}Restarting Trojan service... "
+    systemctl restart ${SVCNAME}
+    check_if_active
+    if [ $? -eq 0 ]; then
+        colorEcho ${GREEN} "Running."
+    else
+        colorEcho ${RED} "Failed."
+    fi
+}
+status_service() {
+    systemctl status ${SVCNAME}
+}
+
+set_apt() {
+    echo "Acquire {
+  HTTP::proxy "http://127.0.0.1:${PROXY_PORT}";
+  HTTPS::proxy "http://127.0.0.1:${PROXY_PORT}";
+}" >/etc/apt/apt.conf.d/proxy.conf
+}
+unset_apt() {
+    rm /etc/apt/apt.conf.d/proxy.conf
+}
+
+proxy() {
+    set_apt
+}
+unproxy() {
+    unset_apt
+}
+
+install() {
+    check_if_active
+    if [ $? -eq 0 ]; then
+        colorEcho ${RED} "Trojan service is running and will be stopped first."
+        stop_service
+    fi
+    mkdir -p ${ETC}
+    ln -sf $(pwd) ${BIN}
+    ln -sf $(pwd)/client.json ${ETC}/config.json
+    ln -sf $(pwd)/trojan-go.service ${SYSTEMD}
+    echo -e "
+${GREEN}Trojan service has been installed to your system.${RAW}
+To start the service, run:
+  ${BLUE}$0 start${RAW}
+Or to stop the running service:
+  ${BLUE}$0 stop${RAW}"
+}
+
+uninstall() {
+    unproxy
+    stop_service
+    rm ${BIN}
+    rm -rf ${ETC}
+    rm ${SYSTEMD}
+    echo -e "trojan service has been removed from your system"
+}
+
+check_if_root
+
+case $1 in
+install)
+    install
+    ;;
+uninstall)
+    uninstall
+    ;;
+start)
+    start_service
+    ;;
+restart)
+    restart_service
+    ;;
+stop)
+    stop_service
+    ;;
+status)
+    status_service
+    ;;
+proxy)
+    proxy
+    ;;
+unproxy)
+    unproxy
+    ;;
+esac
